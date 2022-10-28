@@ -1,0 +1,382 @@
+\documentclass{article}
+\usepackage[french]{babel}
+\usepackage{listings}
+
+\usepackage[a4paper,top=2cm,bottom=2cm,left=3cm,right=3cm,marginparwidth=1.75cm]{geometry}
+
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+
+\title{Premier Projet Programmation}
+\author{Grégoire DHIMOÏLA}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Ce compte rendu résume mon projet de programmation, ce que j'ai fait, ce que je n'ai pas fait, pourquoi, comment, qu'est-ce.
+\end{abstract}
+
+\section{Introduction}
+
+Dans ce projet, j'ai codé en Ocaml un compilateur de formules arithmétiques vers de l'assembleur x86\_64.
+
+
+J'ai commencé par implémenter un analyseur lexical qui transforme une chaine de caractères en liste de lexemes (ou plante si la tête de la chaine ne lui revient pas) un analyseur syntaxique qui transforme une liste de lexemes en arbre d'opérations arithmétiques (ou plante si les lexemes sont pas beau) et un compilateur qui prend un arbre et renvoie sous forme de string le code assembleur qui calcule l'opération arithmétique correspondante, en me disant que c'était juste pour tester, et que j'utiliserais le module pour générer le code plus tard.\newline
+{\tiny SPOILER ALERT : plus tard, on m'a dit qu'il n'y avait pas de gestion des flottants dans le module, ce qui m'a donné la maxi flemme, puis qu'il y avait une fonction inline qui permettait de rajouter un string au code, puis j'ai fais mes optimisations qui avaient besoin du string, puis j'ai eu la giga flemme. En plus avec les string c'est tellement plus propre qu'avec le module. Et c'est ainsi que plus tard n'arriva jamais.}
+
+Ensuite, je me suis fait la réfléxion que le but d'un compilateur était de produire un code qui s'éxecute le plus rapidement possible, quitte à modifier un peu ce que l'utiliseteur a initialement codé, pour peu que ça ne modifie en rien le résultat, tout en gardant une compilation relativement rapide. Je me suis également rendu compte que mes implémentations naïves produisaient un code extrêmement moche, avec plein d'accès à la mémoire à tous vas, et même s'il y a le cache entre les registres et la mémoire, les registres c'est quand même vachement mieux. J'ai donc commencé à chercher des optimisations, listées ici par ordre chronologique, puis dans les parties dédiées, par ordre logique.
+
+J'ai optimisé :\begin{itemize}
+\item l'arbre grâce à la sémantique (moins à bulles, d'où l'utilité de ne travailler qu'avec des valeurs absolues, ce qui a en plus le bon goût de faciliter l'analyseur lexical.) {\footnotesize \emph{(fonction $opt\_sub$, section $4.1$)}}
+\item Le code en remarquant que les push pop juxtaposés sont équivalent à un mov trivial. {\footnotesize \emph{(fonction $opt\_rbx$, section $6.2$)}}
+\item l'arbre  et le code grâce à la sémantique couplée à la future compilation (desequilibre, puis "pseudo" déséquilibre, qui se couple avec la parallélisation.) {\footnotesize \emph{(fonction $opt\_des$, $opt\_sop$, section $4.3$, $6.1$)}}
+\item Le code en mov-ant les valeurs d'entrée au bon endroit plutot que de les push pop {\footnotesize \emph{(fonction $opt\_val$, section $6.3$)}}
+\item Le code en remplaçant les push pop séparés d'une seule ligne par un simple mov {\footnotesize \emph{(fonction $opt\_rax$, section $6.4$)}}
+\item L'arbre, après avoir simplifié les moins, en signant les valeurs plutôt qu'en ne travaillant qu'avec des nombres positifs {\footnotesize \emph{(fonction $opt\_neg$, section $4.2$)}}
+\item Le code et l'arbre en se servant de quelques registres comme pseudo pile {\footnotesize \emph{(fonction $opt\_max$, $opt\_des$, section $6.5$, $4.3$)}}
+\end{itemize}
+
+Notons que la plupart des optimisations ne sont implémentées que pour les entiers par manque de temps, mais elles fonctionnent de manière tout à fait similaire sur les flottants, à ceci près que la parallélisation n'est plus vraiment possible, et qu'on a beaucoup plus de registres libres pour les flottants qui permettent de faire une pseudo pile directement dans les registres.
+
+\section{L'envie d'avoir envie}
+Mais pourquoi donc que je m'embêterais à faire tout ça alors que ce n'est pas demandé et qu'il y a d'autres choses demandées que je n'ai pas fait ?
+{\tiny\newline
+Parce que je n'ai pas lu le sujet.\newline
+Parce que je suis têtu.\newline
+Parce que c'était super intéressant.\newline
+Parce que c'était en tout cas plus intéressant que d'implémenter les bonus simples que tout le monde a fait/peut faire.\newline
+Parce que python m'a traumatisé.}
+
+
+Parce que quand je vois un code comme ça :
+{\scriptsize\begin{lstlisting}
+	.text
+	.globl main
+
+main:
+	pushq $0
+	pushq $4
+	pushq $0
+	pushq $3
+	popq %rbx
+	popq %rax
+	subq %rbx, %rax
+	pushq %rax
+	pushq $18
+	pushq $0
+	pushq $2
+	popq %rbx
+	popq %rax
+	subq %rbx, %rax
+	pushq %rax
+	popq %rbx
+	popq %rax
+	movq $0, %rdx
+	idivq %rbx
+	pushq %rax
+	popq %rbx
+	popq %rax
+	addq %rbx, %rax
+	pushq %rax
+	popq %rbx
+	popq %rax
+	movq $0, %rdx
+	imulq %rbx
+	pushq %rax
+	popq %rbx
+	popq %rax
+	subq %rbx, %rax
+	pushq %rax
+	popq %rsi
+	movq $message, %rdi
+	movq $0, %rax
+	call printf
+
+	ret
+
+	.data
+
+message:
+	.string "%d "
+\end{lstlisting}}
+
+ça me fait mal de ne pas le transformer en
+
+{\scriptsize\begin{lstlisting}
+        .text
+	.globl main
+
+main:
+	movq $2, %rbx
+	movq $18, %rax
+	movq $0, %rdx
+	idivq %rbx
+	movq %rax, %rbx
+	movq $3, %rax
+	addq %rbx, %rax
+	movq %rax, %rbx
+	movq $4, %rax
+	movq $0, %rdx
+	imulq %rbx
+	movq %rax, %rsi
+	movq $message, %rdi
+	movq $0, %rax
+	call printf
+
+	ret
+
+	.data
+
+message:
+	.string "%d "
+\end{lstlisting}}
+
+\section{Analyseurs}
+
+\subsection{Lexical}
+Cette partie est assez simple : on prend un string, on le parcours et on transforme au fur et à mesure les caractères en lexemes. La seule difficulté provient des lexemes variables, trypiquement les int et float, dont on ne connait ni la taille ni le contenu à l'avance. Il faut également prendre garde à l'ordre dans lequel on teste les lexemes, par exemple tester $+_.$ avant $+$ car sinon on ne remarquera jamais le premier, et on se retrouvera avec les '.' qui traînent. Il faut également prendre garde aux espaces, qui sont équivalent au mot vide, sauf lorsqu'ils séparent deux nombres, auquel cas la formule n'est pas valide et le programme plante.
+
+Note : les variables n'ont pas été implémentées par manque de temps. Lors de la lecture du fichier .exp, il suffit d'extraire les lignes une par une, et de stocker les variables dans un dictionnaire dont la clef est le nom de la variable et la valeur est celle indiquée sur la ligne. Lors de l'extraction des lexemes, on prend alors en compte le cas où on voit une lettre, auquel cas on extrait le nom complet de la variable, et on le remplace par le lexeme correspondant à sa valeur.
+
+\subsection{Syntaxique}
+
+L'implémentation naïve de cette partie est également assez simple : il suffit d'extraire le premier "bloc", de regarder quel opérateur apparaît ensuite, et d'aviser (en fonction de la priorité de cet opérateur).
+
+Par bloc, on entend un nombre, ou une parenthèse. Les opérateurs int(exp) et float(exp) n'ayant qu'un seul fils dans l'arbre, et puisqu'ils nécessitent l'utilisation de parenthèses, on les compte comme potentiel initiateur de bloc.
+
+Cependant, cette implémentation naïve conduit à un arbre peu efficace en soi, et relativement aux futures optimisations, l'amélioration de l'analyseur syntaxique sera alors discutée au moment où on en a besoin.
+
+\section{Optimiseur sémantique}
+
+\subsection{Optimisation entropique}
+Cette optimisation est inhérente à la sémantique du langage considéré et va au dela de sa simple syntaxe. Elle ne fait aucun pré-calcul basé sur les valeurs choisies par l'utilisateur, bien évidemment. Ces calculs doivent se faire via le code compilé.
+Elle repose sur l'observation que certaines informations du langage ont une entropie nulle, et l'on peut alors les supprimer sans perte. C'est le cas des moins en arithmétique ou autre opération qui s'annulent mutuellement, éventuellement dans des langages plus compliqués. On ne compte pas les divisions dans ce cas, car ce sont des divisions entières, et elles ont un comportement... spécial.
+
+On fait donc un parcours (en temps linéaire) de l'arbre en applicant l'algorithme baptisé \emph{moins à bulle}. Il est récursif et consiste à faire remonter les moins des arbres gauche et droit, puis du noeud actuel d'après des cas de base qui n'augmentent jamais le nombre d'opérations réalisés, dans une optique de potentiellement créer des simplifications des dits moins. Les cas de base identifiés, par application récursive, permettent de générer presque toutes les simplifications.
+
+\subsection{De valeur absolue à valeur signée}
+Pour l'optimisation précédente, et pour simplifier l'analyseur lexicale, on ne traitait que des valeurs absolues, et stockant le signe dans un - appliqué à 0 et à la valeur. Maintenant qu'on n'a plus besoin de ces moins on peut les "rentrer" dans les valeurs. Ce parcours de l'arbre est toujours en temps linéaire.
+
+\subsection{Déséquilibrer les déséquilibrés}
+Maintenant qu'on a réduit l'arbre, peu importe comment on le manipule, il y aura toujours autant d'opérations arithmétiques réalisées. On va donc chercher à donner à l'arbre une forme plus utile pour les optimisations liées à l'assembleur.
+
+La première idée est que quand une opération est finie son résultat droit être stocké en attendant la fin de l'autre. Comme on calcule d'abord l'arbre gauche puis l'arbre droit, on va donc chercher à déséquilibrer l'arbre à gauche pour ne pas avoir à stocker le résultat de gauche, ou pas trop longtemps. Ce déséquilibrage peut être réalisé dès l'analyseur syntaxique tout en gardant une construction relativement basique, et c'est ce qui a été fait plutot que de faire une fonction de déséquilibrage à part. Ce déséquilibrage est trivial pour les opérations $+$ et $\times$ puisqu'elles commutent et sont associatives. Si j'avais été un peu plus fou que je ne le suis déjà, j'aurais tout de même laissé cette fonction active, puisque l'analyseur syntaxique n'est pas un analyseur sémantique, donc il marche bien pour le cas \[ a \times b \times c \times d \] mais pas pour le cas \[ a \times (b \times (c \times d) \]
+
+Pour aller plus loin dans cette idée, on pourrait retourner à la séction de l'optimisation sémantique pure en rajoutant le cas des / au cas des -, puisque a/b/c = a/(b*c) et on peut optimiser les *, mais cela entrainerait un déséquilibre du déséquilibre à droite ...
+
+Une autre idée vise à permettre la parallélisation qui sera discutée dans le point suivant. En effet, pour qu'il y ait parallélisation efficacement il faut que le même opérateur soit présent en tant que fils droit et gauche, et donc on veut maximiser ce cas de figure, tout en gardant bien entendu un maximum de déséquilibre à gauche. Typiquement, \[ a\ op\ b\ op\ c\ op\ d\ \] si op vaut $+$ ou $\times$ n'est pas si trivial à réaliser, car il faut que le déséquilibrage du déséquilibrage à gauche soit rentable. Par contre \[ (a\ op\ b)\ op'\ (c\ op\ d) \] Cette idée n'a pas été implémentée puisqu'elle est inutile sans la prochaine, qui n'a pas été implémentée non plus.
+
+\section{Compilateur}
+
+On adopte encore une fois une approche simpliste qui sera raffinée plus tard, et on parcours l'arbre comme suit:
+\begin{itemize}
+\item on compile le fils gauche, puis le fils droit,
+\item on extrait leur résultat de la pile et on l'utilise pour calculer le noeud actuel,
+\item on push son résultat dans la pile pour qu'il puisse être utilisé par son père.
+\end{itemize}
+Lorsqu'on fait les deux extractions de la pile, on vérifie facilement qu'on récupère les bons résultat, puisque tout ce qui a été push par les fils gauche et droit a du être récupéré par ces mêmes fils pour calculer leur propre résultat. Il n'y a donc plus rien dans la pile à part leur résultats finaux.
+
+Les optimisations citées dans la partie 4 sont indépendantes de la compilationmais visent à l'aider. Cependant, les optimisations de la partie 6 vont se concentrer sur le code généré, et donc il faudra pouvoir le traiter. Il est donc nécessaire de produire le code sous forme de chaine de caractères et donc de ne pas utiliser le module. Quelques unes de ces optimisations pourraient être implémentées même avec le module, mais il faudrait pour cela complexifier le compilateur, qui a le bon goût d'être extrêmement simple, et de toute manière, les autres ne seraient pas réalisables quoi qu'il arrive.
+
+\section{Optimiseur de compilation}
+
+\subsection{Parallélisation mono processeur}
+En discutant avec Emmanuel, j'ai découvert la puissance des opérations sur les flottants : en fait, on peut s'en servir pour faire des opérations sur les int ! Sauf que les int c'est plus petit que les flottants, donc on peut en mettre 2 dans le même registre $\%xmm_n$, donc on peut faire plusieurs opérations d'un coup ! On peut ainsi faire de la parallélisation mono-thread, et une opération de flottant c'est plus rapide que deux opérations d'entiers ! C'est si beau. C'est tellement beau que je n'ai pas eu le temps de le faire.
+
+Note : un entier est codé sur 32 bits, les $\%xmm_n$ sont de taille 64, mais on ne peut faire que deux multiplication/divisions ou trois additions/soustractions en parallèle car sinon il est possible qu'une des opérations déborde sur l'autre et que le résultat soit inexploitable sans faire encore d'autres opérations par la suite, ce qui annulerait tout bénéfice de la parallélisation.
+
+\subsection{Je vote à droite.}
+Après une longue et fastidieuse bataille de regard avec mon code (qu'il a gagné), j'ai remarqué qu'il y avait énormément de push et de pop, dont une partie non négligeable étaient juxtaposés. J'ai donc créé un parcours en temps linéaire de mon code afin de remplacer tout ces push pop triviaux par un simple mov.\newline
+Ce cas apparaît en fait à chaque fin de calcul de l'arbre droit, il apparaît donc très souvent (environ la moitié du temps).
+
+\subsection{Remettre les valeurs à leur place}
+La première passe, qui génère le code de base, push les valeurs d'entrée dès qu'elle les rencontre car elle ne sait pas quand elle en aura besoin. J'ai donc implémenté une autre passe dans le code qui se charge de mov les valeurs au bon moment au bon endroit, et on gagne donc énormément de push/pop puisque le nombre de feuilles (les valeurs) est environ la moitié du nombre total d'arrêtes (la première passe du compilateur génère un push/pop par arrête). Le cas précédent et celui là se marchent dessus une fois sur deux, il reste donc un quart des push pop après ces deux passes.
+
+\subsection{Mélenchon Révolution}
+Une énième bataille de regard plus tard avec le code compilé, il m'est apparut qu'un grand nombre de push/pop étaient séparé d'une seule ligne. Dans ce cas, par construction du code, cette ligne n'est jamais une opération, et on peut se contenter de supprimer le couple push pop par un mov à la place du pop. Empiriquement, ce cas survenait également de très nombreuses fois, et uniquement sur des sauvegardes du résultat gauche.
+
+\subsection{Et ils appellent ça une pile ? Une pile !}
+L'idée est qu'on fera toujours autant d'appels à la "pile" (la vraie ou celle qui est créée), donc autant minimiser la profondeur de la pile utilisée au maximum, en enfilant les appels à la pile, plutôt qu'en les empilant, pour pouvoir y faire un maximum d'accès via les registres. D'où l'intérêt des déséquilibrages de l'arbre.
+
+On se créer une pseudo pile de profondeur maximale 4 dans les registres $\%r12,\cdots,\%r15$. Même si on pourrait la faire plus grande, c'est déjà franchement pas mal dans la mesure où il reste moins d'un quart des appels initiaux à la pile, dont énormément de ceux qui n'ont pas pu être enfilé ont été éradiqués.
+
+
+\section{Hybris - conclusion}
+
+Il faut toujours plus optimiser. Je veux toujours plus optimiser. Il ne faut pas faire comme python, même si ça implique de ne pas utiliser le module $\times86\_64$. Grâce à ça, la compilation de $E_{10}$ ne fait absolument aucun appel à la pile, et en plus a le bon goût de n'utiliser qu'r12 en pseudo pile, où $E_n$ est défini par \[ E_0\ =\ (1\ +\ 1) \]\[ E_{n+1}\ =\ E_n\ \times\ E_n \] et on peut encore mieux faire !
+
+Grâce à ça, compiler $-3+-5*-4/9\%7+3\%49*(2+1-3/4*6)-2-2*5*14/8+2$ passe de
+{\tiny
+\begin{lstlisting}
+	.text
+	.globl main
+
+main:
+	pushq $0
+	pushq $3
+	popq %rbx
+	popq %rax
+	subq %rbx, %rax
+	pushq %rax
+	pushq $0
+	pushq $5
+	popq %rbx
+	popq %rax
+	subq %rbx, %rax
+	pushq %rax
+	pushq $0
+	pushq $4
+	popq %rbx
+	popq %rax
+	subq %rbx, %rax
+	pushq %rax
+	popq %rbx
+	popq %rax
+	movq $0, %rdx
+	imulq %rbx
+	pushq %rax
+	pushq $9
+	popq %rbx
+	popq %rax
+	movq $0, %rdx
+	idivq %rbx
+	pushq %rax
+	pushq $7
+	popq %rbx
+	popq %rax
+	movq $0, %rdx
+	idivq %rbx
+	pushq %rdx
+	popq %rbx
+	popq %rax
+	addq %rbx, %rax
+	pushq %rax
+	pushq $3
+	popq %rbx
+	popq %rax
+	addq %rbx, %rax
+	pushq %rax
+	pushq $2
+	popq %rbx
+	popq %rax
+	subq %rbx, %rax
+	pushq %rax
+	pushq $2
+	pushq $5
+	popq %rbx
+	popq %rax
+	movq $0, %rdx
+	imulq %rbx
+	pushq %rax
+	pushq $14
+	popq %rbx
+	popq %rax
+	movq $0, %rdx
+	imulq %rbx
+	pushq %rax
+	pushq $8
+	popq %rbx
+	popq %rax
+	movq $0, %rdx
+	idivq %rbx
+	pushq %rax
+	popq %rbx
+	popq %rax
+	subq %rbx, %rax
+	pushq %rax
+	pushq $2
+	popq %rbx
+	popq %rax
+	addq %rbx, %rax
+	pushq %rax
+	popq %rsi
+	movq $message, %rdi
+	movq $0, %rax
+	call printf
+
+	ret
+
+	.data
+
+message:
+	.string "%d "
+\end{lstlisting}}
+
+à
+{\tiny
+\begin{lstlisting}
+	.text
+	.globl main
+
+main:
+	movq $4, %rbx
+	movq $5, %rax
+	movq $0, %rdx
+	imulq %rbx
+	movq $9, %rbx
+	movq $0, %rdx
+	idivq %rbx
+	movq $7, %rbx
+	movq $0, %rdx
+	idivq %rbx
+	movq $3, %rbx
+	subq %rbx, %rax
+	movq %rax, %r12
+	movq $1, %rbx
+	movq $2, %rax
+	addq %rbx, %rax
+	movq %rax, %r13
+	movq $4, %rbx
+	movq $3, %rax
+	movq $0, %rdx
+	idivq %rbx
+	movq $6, %rbx
+	movq $0, %rdx
+	imulq %rbx
+	movq %rax, %rbx
+	movq %r13, %rax
+	subq %rbx, %rax
+	movq %rax, %rbx
+	movq $49, %rax
+	movq $0, %rdx
+	imulq %rbx
+	movq %rax, %rbx
+	movq $3, %rax
+	movq $0, %rdx
+	idivq %rbx
+	movq %rdx, %rbx
+	movq %r12, %rax
+	addq %rbx, %rax
+	movq $2, %rbx
+	subq %rbx, %rax
+	movq %rax, %r12
+	movq $5, %rbx
+	movq $2, %rax
+	movq $0, %rdx
+	imulq %rbx
+	movq $14, %rbx
+	movq $0, %rdx
+	imulq %rbx
+	movq $8, %rbx
+	movq $0, %rdx
+	idivq %rbx
+	movq %rax, %rbx
+	movq %r12, %rax
+	subq %rbx, %rax
+	movq $2, %rbx
+	addq %rbx, %rax
+	movq %rax, %rsi
+	movq $message, %rdi
+	movq $0, %rax
+	call printf
+
+	ret
+
+	.data
+
+message:
+	.string "%d "
+\end{lstlisting}}
+\end{document}
