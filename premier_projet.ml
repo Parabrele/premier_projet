@@ -32,7 +32,7 @@ type lexeme =
 	|Suf'
 	|Muf';;
 
-(*on convertir la chaine de char en liste de char*)
+(*on convertit la chaine de char en liste de char*)
 let string_to_list f =
 	let rec aux i l =
 		if i<0 then l else aux (i-1) (f.[i] :: l)
@@ -143,10 +143,6 @@ let rec extrait f =
 		a, fin
 	(*ce cas permet de traiter les float négatifs, ma construction extrait toujours*)
 	(*les valeurs absolues                                                         *)
-	(*ATTENTION : contrairement au cas entier où on a bien fait les choses, ceci ne  *)
-	(*plantera pas si on a mis trop de - à la suite. Le cas entier plante parce qu'on*)
-	(*considère le -|int|, -(exp) mais pas le -exp, et là on ne traite que le cas    *)
-	(*-|float|, pas le cas -.(exp) ni le -.float                                     *)
 	| Sub' :: suite ->
 		let a, fin = extrait suite in begin
 		match a with
@@ -252,17 +248,11 @@ and donne t1 fin =
 	| [] -> t1
 	| op :: suite ->
 		match op with
-		| Add' | Adf' ->
+		| Add' | Adf' | Sub' | Suf'  ->
 			(*cf optimisation desequilibre à droite*)
 			let b, fin2 = extrait_prio suite 0 in
 			donne (apply_op op t1 (gen_arbre b)) fin2
-		| Sub' | Suf' ->
-			let b, fin2 = extrait_prio suite 0 in
-			donne (apply_op op t1 (gen_arbre b)) fin2
-		| Mul' | Muf' ->
-			let b, fin2 = extrait_prio suite 2 in
-			donne (apply_op op t1 (gen_arbre b)) fin2
-		| Div' ->
+		| Mul' | Muf' | Div' ->
 			let b, fin2 = extrait_prio suite 2 in
 			donne (apply_op op t1 (gen_arbre b)) fin2
 		| Mod' ->
@@ -314,7 +304,7 @@ let anal_synt f =
 		then tree
 		else failwith "Erreur de typage";;
 
-(*compile l'arbre et génère le code principale, et les floats à stocker dans data*)
+(*compile l'arbre et génère le code principal, et les floats à stocker dans data*)
 let rec compile_tree tree code data nb_float =
 	match tree with
 	(*on ne fait que push l'entier sur la pile*)
@@ -368,8 +358,8 @@ let rec compile_tree tree code data nb_float =
 		let code_, data', nb_float' = compile_tree b code'' data'' nb_float'' in
 		let code' = ref code_ in begin
 		code' := !code'
-				^ "\n\tpopq %rbx"			(*b -> r14*)
-				^ "\n\tpopq %rax";			(*a -> r13*)
+				^ "\n\tpopq %rbx"			(*b -> rbx*)
+				^ "\n\tpopq %rax";			(*a -> rax*)
 		match tree with						(*a op b -> a*)
 		| Add (c, d) -> code' := !code'
 				^ "\n\taddq %rbx, %rax"
@@ -379,35 +369,28 @@ let rec compile_tree tree code data nb_float =
 		data',
 		nb_float'
 	(*on évalue les sous arbres, puis on récupère leur résultat, puis on fait l'opération correspondante*)
-	| Mul (a, b) ->
-		let code'', data'', nb_float'' =  compile_tree a code data nb_float in
-		let code_, data', nb_float' = compile_tree b code'' data'' nb_float'' in
-		let code' = ref code_ in
-		!code'	^ "\n\tpopq %rbx"
-				^ "\n\tpopq %rax"
-				^ "\n\tcqto"
-				^ "\n\timulq %rbx"
-				^ "\n\tpushq %rax",
-		data',
-		nb_float'
-	| Div (a, b) | Mod (a, b) ->
+	| Mul (a, b) | Div (a, b) | Mod (a, b) ->
 		let code'', data'', nb_float'' =  compile_tree a code data nb_float in
 		let code_, data', nb_float' = compile_tree b code'' data'' nb_float'' in
 		let code' = ref code_ in begin
-		code' := !code'
-				^ "\n\tpopq %rbx"
+		!code'	^ "\n\tpopq %rbx"
 				^ "\n\tpopq %rax"
-				^ "\n\tcqto"
-				^ "\n\tidivq %rbx";
+				^ "\n\tcqto";
 		match tree with
+		| Mul (c, d) -> code' := !code'
+				^ "\n\timulq %rbx"
+				^ "\n\tpushq %rax"
 		| Div (c, d) -> code' := !code'
+				^ "\n\tidivq %rbx"
 				^ "\n\tpushq %rax"
 		| Mod (c, d) -> code' := !code'
+				^ "\n\tidivq %rbx"
 				^ "\n\tpushq %rdx" end;
 		!code',
 		data',
 		nb_float'
 	(*on évalue les sous arbres, puis on récupère leur résultat, puis on fait l'opération correspondante*)
+	(*ATTENTION : il est fort possible que la multiplication flottante ne marche pas !*)
 	| Adf (a, b) | Suf (a, b) | Muf (a, b) ->
 		let code'', data'', nb_float'' =  compile_tree a code data nb_float in
 		let code_, data', nb_float' = compile_tree b code'' data'' nb_float'' in
