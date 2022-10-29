@@ -146,7 +146,7 @@ let rec extrait f =
 	| Sub' :: suite ->
 		let a, fin = extrait suite in begin
 		match a with
-		| [Float' str] -> Suf' :: a, fin
+		| [Float' str] -> Sub' :: a, fin
 		| Pao :: fin2 -> Sub' :: a, fin
 		| [Int' str]   -> Sub' :: a, fin
 		| _ -> failwith "Un '-' en début de bloc ne peut qu'être suivit d'un nombre (auquel cas c'est un nombre négatif) ou d'une parenthèse (auquel cas on traite un -(exp))" end
@@ -736,7 +736,7 @@ let f1 = en 5;;
 *)
 
 
-let file_name = read_line ();;
+let file_name = Sys.argv[0];;
 let file = open_in file_name ;;
 
 (*cette construction permet de faire la gestion de variable aisément.*)
@@ -756,6 +756,12 @@ let f3 = anal_lex f2 ;;
 let f4 = anal_synt f3 ;;
 let code = compile f4;;
 
-let oc = open_out "expression.s";;
+let i = ref 0;;
+while file_name.[i] <> '.' do
+	i := !i + 1
+done;;
+let nom = String.sub file_name 0 i;;
+
+let oc = open_out (nom ^ ".s");;
 Printf.fprintf oc "%s\n" code;;
 close_out oc;;

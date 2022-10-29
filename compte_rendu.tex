@@ -38,7 +38,7 @@ J'ai optimisé :\begin{itemize}
 \item Le code et l'arbre en se servant de quelques registres comme pseudo pile {\footnotesize \emph{(fonction $opt\_max$, $opt\_des$, section $6.5$, $4.3$)}}
 \end{itemize}
 
-Notons que la plupart des optimisations ne sont implémentées que pour les entiers par manque de temps, mais elles fonctionnent de manière tout à fait similaire sur les flottants, à ceci près que la parallélisation n'est plus vraiment possible, et qu'on a beaucoup plus de registres libres pour les flottants qui permettent de faire une pseudo pile directement dans les registres.
+Notons que la plupart des optimisations ne sont implémentées que pour les entiers par manque de temps, mais elles fonctionnent de manière tout à fait similaire sur les flottants, à ceci près que la parallélisation n'est plus vraiment possible, et qu'on a beaucoup plus de registres libres pour les flottants qui permettent de faire une pseudo pile directement dans les registres. Pour que ça ne plante pas sur vos tests, le makefile appelle donc la fonction $compile$. Si vous voulez vous amuser sur les entiers, vous pouvez modifier $premier\_projet.ml$ et simplement appeler $compile\_opt$ à la place de la première
 
 \section{L'envie d'avoir envie}
 Mais pourquoi donc que je m'embêterais à faire tout ça alors que ce n'est pas demandé et qu'il y a d'autres choses demandées que je n'ai pas fait ?
