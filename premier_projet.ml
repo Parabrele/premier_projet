@@ -736,7 +736,7 @@ let f1 = en 5;;
 *)
 
 
-let file_name = Sys.argv.(0);;
+let file_name = Sys.argv.(1);;
 let file = open_in file_name ;;
 
 (*cette construction permet de faire la gestion de variable aisément.*)
