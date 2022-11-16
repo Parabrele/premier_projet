@@ -757,10 +757,10 @@ let f4 = anal_synt f3 ;;
 let code = compile f4;;
 
 let i = ref 0;;
-while file_name.[i] <> '.' do
+while file_name.[!i] <> '.' do
 	i := !i + 1
 done;;
-let nom = String.sub file_name 0 i;;
+let nom = String.sub file_name 0 !i;;
 
 let oc = open_out (nom ^ ".s");;
 Printf.fprintf oc "%s\n" code;;
